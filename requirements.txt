@@ -4,3 +4,6 @@ openpyxl
 matplotlib
 plotly
 streamlit-aggrid
+Flask
+pandas
+openpyxl
