@@ -1,185 +1,82 @@
-<!DOCTYPE html>
-<html>
+from flask import Flask, render_template, request, redirect
+import pandas as pd
+import os
+from datetime import datetime
 
-<head>
-    <title>Contractor Details</title>
-    <style>
-        body {
-            font-family: Arial, sans-serif;
-            margin: 30px;
-        }
-        
-        .form-row {
-            display: flex;
-            gap: 20px;
-            align-items: center;
-            margin-bottom: 20px;
-        }
-        
-        .form-group {
-            display: flex;
-            flex-direction: column;
-        }
-        
-        input[type="text"],
-        input[type="date"],
-        input[type="number"] {
-            padding: 6px;
-            width: 180px;
-        }
-        
-        button {
-            padding: 10px 20px;
-            background-color: #4CAF50;
-            color: white;
-            border: none;
-            cursor: pointer;
-        }
-        
-        .dia-row {
-            display: flex;
-            gap: 20px;
-            align-items: center;
-            margin-bottom: 10px;
-        }
-        
-        .sum-box {
-            width: 120px;
-            padding: 6px;
-            background-color: #f0f0f0;
-            border: 1px solid #ccc;
-            font-weight: bold;
-            text-align: center;
-        }
-        
-        .bill-input {
-            width: 120px;
-            padding: 6px;
-            border: 1px solid #ccc;
-        }
-        
-        .submit-right {
-            display: flex;
-            justify-content: flex-end;
-            margin-top: 20px;
-        }
-    </style>
-</head>
+app = Flask(__name__)
+EXCEL_FILE = "contractor_data.xlsx"
 
-<body>
-    <h2>Enter Contractor Details</h2>
-    <div id="selectedPanchayat"></div>
+# Define DIA columns
+DIA_COLUMNS = [col.upper().strip() for col in [
+    "63DIA", "75 DIA", "90 DIA", "110 DIA", "125 DIA", "140 DIA", "160 DIA", "180 DIA", "200 DIA"
+]]
 
-    <form id="contractForm" action="/submit" method="POST">
-        <input type="hidden" name="panchayat" id="panchayatHidden">
+# Initialize Excel file with correct structure
+if not os.path.exists(EXCEL_FILE):
+    df = pd.DataFrame(columns=[
+        "DATE", "RA BILL", "VENDOR CODE", "NAME OF THE CONTRACTOR", "SCHEME ID", "PANCHAYAT", "TYPE"
+    ] + DIA_COLUMNS)
+    df.to_excel(EXCEL_FILE, index=False)
 
-        <div class="form-row">
-            <div class="form-group">
-                <label for="vendorCode">Vendor Code:</label>
-                <input type="text" id="vendorCode" name="vendorCode" required>
-            </div>
-            <div class="form-group">
-                <label for="contractorName">Contractor Name:</label>
-                <input type="text" id="contractorName" name="contractorName" required>
-            </div>
-            <div class="form-group">
-                <label for="SchemeID">Scheme ID:</label>
-                <input type="text" id="SchemeID" name="SchemeID" required>
-            </div>
-            <div class="form-group">
-                <label for="workDate">Date of Work:</label>
-                <input type="date" id="workDate" name="workDate" required>
-            </div>
-        </div>
+@app.route("/")
+def index():
+    return render_template("index.html")
 
-        <div id="diaContainer"></div>
+@app.route("/details")
+def details():
+    return render_template("details.html")
 
-        <div class="submit-right">
-            <button type="submit">Submit</button>
-        </div>
-    </form>
+@app.route("/submit", methods=["POST"])
+def submit():
+    contractor = request.form.get("contractorName", '').strip()
+    vendor_code = request.form.get("vendorCode", '').strip()
+    scheme_id = request.form.get("SchemeID", '').strip()
+    panchayat = request.form.get("panchayat", '').strip()
+    ra_bill = request.form.get("raBill", '').strip()
+    date = request.form.get("workDate", '').strip()
 
-    <script>
-        const diaValues = [75, 90, 120, 140, 150, 180, 200, 220];
-        const diaCounts = {};
-        const diaBills = {};
-        const diaLastCum = {};
-        const diaBoxes = {};
+    try:
+        formatted_date = datetime.strptime(date, "%Y-%m-%d").strftime("%d-%m-%Y")
+    except ValueError:
+        formatted_date = ""
 
-        const diaContainer = document.getElementById("diaContainer");
+    # Load existing Excel data
+    if os.path.exists(EXCEL_FILE):
+        df = pd.read_excel(EXCEL_FILE)
+        df.columns = df.columns.str.strip().str.upper()
+    else:
+        df = pd.DataFrame(columns=[
+            "DATE", "RA BILL", "VENDOR CODE", "NAME OF THE CONTRACTOR", "SCHEME ID", "PANCHAYAT", "TYPE"
+        ] + DIA_COLUMNS)
 
-        const urlParams = new URLSearchParams(window.location.search);
-        const selectedPanchayat = urlParams.get('panchayat');
-        if (selectedPanchayat) {
-            document.getElementById("selectedPanchayat").innerHTML =
-                `<p><strong>Selected Panchayat:</strong> ${selectedPanchayat}</p>`;
-            document.getElementById("panchayatHidden").value = selectedPanchayat;
-        }
+    # Prepare the new row
+    bill_row = {
+        "DATE": formatted_date,
+        "RA BILL": ra_bill,
+        "VENDOR CODE": vendor_code,
+        "NAME OF THE CONTRACTOR": contractor,
+        "SCHEME ID": scheme_id,
+        "PANCHAYAT": panchayat,
+        "TYPE": "this_bill"
+    }
 
-        diaValues.forEach(value => {
-            diaCounts[value] = 0;
-            diaBills[value] = 0;
-            diaLastCum[value] = 0;
+    # Fill DIA values
+    for dia_label in DIA_COLUMNS:
+        dia_value = dia_label.split()[0]
+        bill_input = request.form.get(f"bill_{dia_value}", "0").strip()
 
-            const row = document.createElement("div");
-            row.className = "dia-row";
+        try:
+            bill = int(bill_input) if bill_input else 0
+        except ValueError:
+            bill = 0
 
-            const btn = document.createElement("button");
-            btn.textContent = `${value} dia`;
-            btn.type = "button";
+        bill_row[dia_label] = bill
 
-            const cumBox = document.createElement("div");
-            cumBox.className = "sum-box";
-            cumBox.textContent = "Cum: 0";
+    # Append and save
+    df = pd.concat([df, pd.DataFrame([bill_row])], ignore_index=True)
+    df.to_excel(EXCEL_FILE, index=False)
 
-            const prevBox = document.createElement("div");
-            prevBox.className = "sum-box";
-            prevBox.textContent = "Prev: 0";
+    return redirect("/")
 
-            const billInput = document.createElement("input");
-            billInput.className = "bill-input";
-            billInput.type = "number";
-            billInput.name = `bill_${value}`;
-            billInput.placeholder = "This Bill";
-
-            btn.onclick = () => {
-                diaLastCum[value] = diaCounts[value];
-                diaCounts[value] += value;
-                cumBox.textContent = `Cum: ${diaCounts[value]}`;
-            };
-
-            billInput.oninput = () => {
-                const billValue = parseInt(billInput.value) || 0;
-                diaBills[value] = billValue;
-                prevBox.textContent = `Prev: ${billValue}`;
-            };
-
-            row.appendChild(btn);
-            row.appendChild(cumBox);
-            row.appendChild(prevBox);
-            row.appendChild(billInput);
-            diaContainer.appendChild(row);
-
-            const cumInput = document.createElement("input");
-            cumInput.type = "hidden";
-            cumInput.name = `cum_${value}`;
-            cumInput.value = diaCounts[value];
-            diaContainer.appendChild(cumInput);
-
-            diaBoxes[value] = {
-                cumBox,
-                prevBox,
-                billInput,
-                cumInput
-            };
-        });
-
-        document.getElementById("contractForm").addEventListener("submit", function() {
-            diaValues.forEach(value => {
-                diaBoxes[value].cumInput.value = diaCounts[value];
-            });
-        });
-    </script>
-</body>
-
-</html>
+if __name__ == "__main__":
+    app.run(debug=True)
