@@ -6,12 +6,15 @@ from datetime import datetime
 app = Flask(__name__)
 EXCEL_FILE = "contractor_data.xlsx"
 
-DIA_COLUMNS = [col.upper().strip() for col in ["75 DIA", "90 DIA", "120 DIA", "140 DIA", "150 DIA", "180 DIA", "200 DIA", "220 DIA"]]
+# Define DIA columns
+DIA_COLUMNS = [col.upper().strip() for col in [
+    "63DIA", "75 DIA", "90 DIA", "110 DIA", "125 DIA", "140 DIA", "160 DIA", "180 DIA", "200 DIA"
+]]
 
-# Initialize Excel with correct structure
+# Initialize Excel file with correct structure
 if not os.path.exists(EXCEL_FILE):
     df = pd.DataFrame(columns=[
-        "DATE", "VENDOR CODE", "NAME OF THE CONTRACTOR", "SCHEME ID", "PANCHAYAT", "TYPE"
+        "DATE", "RA BILL", "VENDOR CODE", "NAME OF THE CONTRACTOR", "SCHEME ID", "PANCHAYAT", "TYPE"
     ] + DIA_COLUMNS)
     df.to_excel(EXCEL_FILE, index=False)
 
@@ -25,93 +28,55 @@ def details():
 
 @app.route("/submit", methods=["POST"])
 def submit():
-    contractor = request.form.get("contractorName", '')
-    vendor_code = request.form.get("vendorCode", '')
-    scheme_id = request.form.get("SchemeID", '')
-    panchayat = request.form.get("panchayat", '')
-    date = request.form.get("workDate", '')
-    formatted_date = datetime.strptime(date, "%Y-%m-%d").strftime("%d-%m-%Y")
+    contractor = request.form.get("contractorName", '').strip()
+    vendor_code = request.form.get("vendorCode", '').strip()
+    scheme_id = request.form.get("SchemeID", '').strip()
+    panchayat = request.form.get("panchayat", '').strip()
+    ra_bill = request.form.get("raBill", '').strip()
+    date = request.form.get("workDate", '').strip()
 
-    # Read the existing Excel file
+    try:
+        formatted_date = datetime.strptime(date, "%Y-%m-%d").strftime("%d-%m-%Y")
+    except ValueError:
+        formatted_date = ""
+
+    # Load existing Excel data
     if os.path.exists(EXCEL_FILE):
         df = pd.read_excel(EXCEL_FILE)
         df.columns = df.columns.str.strip().str.upper()
     else:
         df = pd.DataFrame(columns=[
-            "DATE", "VENDOR CODE", "NAME OF THE CONTRACTOR", "SCHEME ID", "PANCHAYAT", "TYPE"
+            "DATE", "RA BILL", "VENDOR CODE", "NAME OF THE CONTRACTOR", "SCHEME ID", "PANCHAYAT", "TYPE"
         ] + DIA_COLUMNS)
 
-    # Initialize a list to hold the new rows
-    new_rows = []
+    # Prepare the new row
+    bill_row = {
+        "DATE": formatted_date,
+        "RA BILL": ra_bill,
+        "VENDOR CODE": vendor_code,
+        "NAME OF THE CONTRACTOR": contractor,
+        "SCHEME ID": scheme_id,
+        "PANCHAYAT": panchayat,
+        "TYPE": "this_bill"
+    }
 
-    # Get data from the form for all DIA values
-    form_data = {}
+    # Fill DIA values
     for dia_label in DIA_COLUMNS:
         dia_value = dia_label.split()[0]
         bill_input = request.form.get(f"bill_{dia_value}", "0").strip()
-        cum_input = request.form.get(f"cum_{dia_value}", "0").strip()
 
         try:
             bill = int(bill_input) if bill_input else 0
         except ValueError:
             bill = 0
 
-        try:
-            cum_value = int(cum_input) if cum_input else 0
-        except ValueError:
-            cum_value = 0
+        bill_row[dia_label] = bill
 
-        form_data[dia_label] = {
-            "bill": bill,
-            "cum_value": cum_value
-        }
-
-    # Prepare the new rows
-    cumulative_row = {
-        "DATE": formatted_date,
-        "VENDOR CODE": vendor_code,
-        "NAME OF THE CONTRACTOR": contractor,
-        "SCHEME ID": scheme_id,
-        "PANCHAYAT": panchayat,
-        "TYPE": "cumulative_sum"
-    }
-
-    previous_row = {
-        "DATE": "",
-        "VENDOR CODE": "",
-        "NAME OF THE CONTRACTOR":"",
-        "SCHEME ID": "",
-        "PANCHAYAT": "",
-        "TYPE": "previous_sum"
-    }
-    
-    bill_row = {
-        "DATE": "",
-        "VENDOR CODE": "",
-        "NAME OF THE CONTRACTOR": "",
-        "SCHEME ID": "",
-        "PANCHAYAT": "",
-        "TYPE": "this_bill"
-    }
-    
-    # Fill the rows with the correct DIA values
-    for dia_label in DIA_COLUMNS:
-        dia_data = form_data[dia_label]
-        cumulative_row[dia_label] = dia_data["cum_value"]
-        bill_row[dia_label] = dia_data["bill"]
-        previous_row[dia_label] = dia_data["cum_value"] - dia_data["bill"]
-
-    new_rows.append(cumulative_row)
-    new_rows.append(previous_row)
-    new_rows.append(bill_row)
-
-    # Append the new rows to the DataFrame
-    df = pd.concat([df, pd.DataFrame(new_rows)], ignore_index=True)
-
-    # Save the updated DataFrame to the Excel file
+    # Append and save
+    df = pd.concat([df, pd.DataFrame([bill_row])], ignore_index=True)
     df.to_excel(EXCEL_FILE, index=False)
-    
+
     return redirect("/")
 
 if __name__ == "__main__":
-    app.run(debug=False, use_reloader=False)
+    app.run(debug=True)
